@@ -1,0 +1,100 @@
+.meditation__form {
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: #fff;
+  border-radius: 1rem;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+.meditation__field {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1.5rem;
+
+  &--checkbox {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+
+    .meditation__input[type="checkbox"] {
+      margin: 0 0.5rem 0 0;
+      width: 18px;
+      height: 18px;
+    }
+
+    .meditation__label {
+      margin: 0; // remove extra spacing
+      font-weight: 400;
+      cursor: pointer;
+    }
+  }
+}
+
+.meditation__label {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #333;
+  transition: color 0.2s ease;
+
+  &--error {
+    color: #c0392b;
+  }
+}
+
+.meditation__input {
+  padding: 0.75rem 1rem;
+  border: 1px solid #ccc;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+  &:focus {
+    border-color: #ff7e47; // burnt orange accent?
+    box-shadow: 0 0 0 3px rgba(255, 126, 71, 0.2);
+    outline: none;
+  }
+
+  &--error {
+    border-color: #c0392b;
+    background: #fdecea;
+  }
+
+  &[type="checkbox"] {
+    width: auto;
+    margin-right: 0.5rem;
+    transform: scale(1.2);
+  }
+
+  textarea {
+    min-height: 120px;
+    resize: vertical;
+  }
+}
+
+.meditation__button {
+  background: #ff7e47; // burnt orange accent
+  color: #fff;
+  padding: 0.85rem 1.5rem;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+
+  &:hover {
+    background: rgba(255, 126, 71, 0.6);
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
+.meditation__field div {
+  margin-top: 0.4rem;
+  font-size: 0.875rem;
+  color: #c0392b;
+}

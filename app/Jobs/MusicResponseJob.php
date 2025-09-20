@@ -4,14 +4,14 @@ namespace App\Jobs;
 
 use App\Models\Meditation;
 use App\Services\Api\GoogleDrive;
-use App\Services\DatabaseLogger;
-use Illuminate\Bus\Queueable;
+use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Excepetion;
+use App\Services\DatabaseLogger;
 
 class MusicResponseJob implements ShouldQueue
 {
@@ -19,25 +19,43 @@ class MusicResponseJob implements ShouldQueue
 
     protected $meditationId;
     protected $meditationDate;
-    protected $voicePath;
-    protected $musicPath;
+    protected $tempVoicePath;
+    protected $tempMusicPath;
 
-    public function __construct($meditationId, $meditationDate, $voicePath, $musicPath)
+    public function __construct($meditationId, $meditationDate, $tempVoicePath, $tempMusicPath)
     {
         $this->meditationId = $meditationId;
         $this->meditationDate = $meditationDate;
-        $this->voicePath = $voicePath;
-        $this->musicPath = $musicPath;
+        $this->tempVoicePath = $tempVoicePath;
+        $this->tempMusicPath = $tempMusicPath;
+    }
+
+    public int $timeout = 900;       // 15 min for long tasks (FFmpeg)
+    public bool $failOnTimeout = true;
+
+    public int $tries = 3;           // or higher for pollers
+    public function backoff(): array  // exponential backoff for retries
+    {
+        return [10, 30, 60];
     }
 
     public function handle(): void
     {
-        // Upload to Google Drive
+        // Upload the music file to Google Drive
         $googleDrive = new GoogleDrive();
         $googleFileName = 'meditation_music_' . $this->meditationId . '_' . $this->meditationDate . '.wav';
-        $uploadPath = $googleDrive->uploadPath(Storage::path($this->musicPath), $googleFileName, 'audio/wav', 'test');
+        $uploadPath = $googleDrive->uploadPath($this->tempMusicPath, $googleFileName, 'audio/wav', 'test');
         $googleDrive->makeAnyoneReader($uploadPath);
         $musicDrivePath = $googleDrive->publicDownloadLink($uploadPath);
+
+        Log::info('3.2 uploading music to google drive', [
+            'meditationId' => $this->meditationId,
+            'meditationDate' => $this->meditationDate,
+            'musicPath'    => $this->tempMusicPath,
+            'nextMusicPath' => Storage::path($this->tempMusicPath),
+            'voicePath'    => $this->tempVoicePath,
+            'nextVoicePath' => Storage::path($this->tempVoicePath),
+        ]);
 
         // Save to meditation record
         $meditation = Meditation::find($this->meditationId);
@@ -54,6 +72,6 @@ class MusicResponseJob implements ShouldQueue
             'music_drive_path' => $musicDrivePath,
         ], $this->job?->getJobId());
 
-        MixAudioJob::dispatch($this->meditationId, $this->meditationDate, $this->voicePath, $this->musicPath);
+        MixAudioJob::dispatch($this->meditationId, $this->meditationDate, $this->tempVoicePath, $this->tempMusicPath);
     }
 }

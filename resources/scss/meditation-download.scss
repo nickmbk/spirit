@@ -1,0 +1,144 @@
+/* Layout */
+.download-wrap {
+  max-width: 720px;
+  margin: 3rem auto;
+  padding: 0 1rem;
+}
+
+.download-card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  padding: 2rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle floating glow */
+.download-card::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(45% 45% at 50% 50%, rgba(255,126,71,.10), transparent 60%);
+  transform: rotate(12deg);
+  pointer-events: none;
+}
+
+/* States */
+.hidden { display: none !important; }
+
+.status-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: .5rem;
+  color: #333;
+}
+
+.status-subtle {
+  color: #666;
+  font-size: .95rem;
+}
+
+/* Spinner */
+.spinner {
+  width: 48px; height: 48px;
+  margin: 1rem auto 0;
+  border: 3px solid #eee;
+  border-top-color: #ff7e47; /* burnt orange */
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.spinner.hide {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+/* Button */
+.btn {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: .9rem 1.25rem;
+  border-radius: 12px;
+  background: #ff7e47;
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 6px 16px rgba(255,126,71,.35);
+  transition: transform .06s ease, box-shadow .2s ease, background .2s ease;
+}
+.btn:hover { background: #e86f3f; box-shadow: 0 8px 20px rgba(255,126,71,.42); }
+.btn:active { transform: translateY(1px); }
+
+/* URL box */
+code#url {
+  display: inline-block;
+  margin-top: .75rem;
+  padding: .5rem .75rem;
+  background: #f7f7f8;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  word-break: break-all;
+  color: #444;
+}
+
+/* Accessibility: respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; border-top-color: #ff7e47; }
+  .btn { transition: none; }
+}
+
+/* --- Overlay --- */
+.brew__overlay {
+  position: fixed; inset: 0;
+  background: linear-gradient(180deg, #fff 0%, #f7f7f9 100%);
+  display: grid; place-items: center;
+  z-index: 9999;
+}
+
+.brew__panel {
+  width: min(680px, 92vw);
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 16px 40px rgba(0,0,0,.08);
+  padding: 2rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.brew__panel::before {
+  content: "";
+  position: absolute; inset: -40%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(255,126,71,.10), transparent 60%);
+  transform: rotate(8deg);
+  pointer-events: none;
+}
+
+.brew__logo { font-size: 2rem; margin-bottom: .25rem; }
+.brew__title { margin: 0 0 .5rem; font-weight: 800; color: #333; }
+.brew__message { margin: 0 0 1.25rem; color: #555; }
+
+.brew__progress {
+  height: 12px; background: #eee;
+  border-radius: 999px; overflow: hidden;
+}
+.brew__progress-bar {
+  height: 100%;
+  background: #ff7e47; /* burnt orange */
+  width: 0%;
+  transition: width .35s ease;
+}
+
+.brew__percent { margin-top: .5rem; color: #444; font-weight: 700; }
+
+/* Hide helper */
+.hidden { display: none !important; }
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .brew__progress-bar { transition: none; }
+}

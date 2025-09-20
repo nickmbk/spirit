@@ -27,21 +27,36 @@ class GenerateScriptJob implements ShouldQueue
         $this->meditationDate = $meditationDate;
     }
 
+    public int $timeout = 900;       // 15 min for long tasks (FFmpeg)
+    public bool $failOnTimeout = true;
+
+    public int $tries = 3;           // or higher for pollers
+    public function backoff(): array  // exponential backoff for retries
+    {
+        return [10, 30, 60];
+    }
+
     /**
      * Execute the job.
      */
     public function handle(OpenAi $openAi): void
     {
         try {
+            // call the api to generate the script
             $script = $openAi->createScript($this->meditationId);
+
+            // log any issues to the database
             DatabaseLogger::info(self::class, 'Creation of OpenAI API Service has started', [
                 'meditation_id' => $this->meditationId,
                 'meditation_date' => $this->meditationDate
             ], $this->job?->getJobId());
-            // $script = $openAi->generateFakeScript();
+
+            // save the script to the meditation record
             $meditation = Meditation::find($this->meditationId);
             $meditation->script_text = $script;// TODO: save in google drive as text file
             $meditation->save();
+
+            // pass the script to the next job to create the voice audio file
             GenerateVoiceJob::dispatch($this->meditationId, $this->meditationDate, $script);
         } catch (Exception $e) {
             Log::error('Error generating script: ' . $e->getMessage(), ['exception' => $e]);

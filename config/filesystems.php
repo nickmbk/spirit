@@ -62,9 +62,9 @@ return [
 
         'temp' => [
             'driver' => 'local',
-            'root' => storage_path('app/temp'),
+            'root' => storage_path('app/tmp'),
             'visibility' => 'private',
-            'throw' => false,
+            'throw' => true,
             'report' => false,
         ],
 

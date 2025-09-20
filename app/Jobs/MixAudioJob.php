@@ -36,9 +36,18 @@ class MixAudioJob implements ShouldQueue
         $this->fadeOut = $fadeOut;
     }
 
+    public int $timeout = 900;       // 15 min for long tasks (FFmpeg)
+    public bool $failOnTimeout = true;
+
+    public int $tries = 3;           // or higher for pollers
+    public function backoff(): array  // exponential backoff for retries
+    {
+        return [10, 30, 60];
+    }
+
     public function handle(): void
     {
-        Log::info('🎛️ 4.1 Starting meditation mix', [
+        Log::info('🎛️ 4.0 Starting meditation mix job', [
             'meditationId' => $this->meditationId,
             'meditationDate' => $this->meditationDate,
             'voicePath'    => $this->voicePath,
@@ -46,8 +55,13 @@ class MixAudioJob implements ShouldQueue
         ]);
 
         // 1) Load the files from storage (local or remote)
-        $voiceBinary = $this->loadFile($this->voicePath);
-        $musicBinary = $this->loadFile($this->musicPath);
+        $voiceBinary = is_file($this->voicePath)
+            ? file_get_contents($this->voicePath)
+            : Storage::disk('temp')->get($this->voicePath);
+
+        $musicBinary = is_file($this->musicPath)
+            ? file_get_contents($this->musicPath)
+            : Storage::disk('temp')->get($this->musicPath);
 
         // 2) Mix audio using FFmpeg
         $mixer = new AudioMix();
@@ -63,22 +77,21 @@ class MixAudioJob implements ShouldQueue
             outFormat:   'mp3'
         );
 
-        // 3) Save the mixed track to Google Drive/Test
-        // $googleDrive = new GoogleDrive();
-        // $meditationPath = $googleDrive->uploadFile('meditation', $this->meditationId, $mix, $this->meditationDate, 'mp3')->download;
+        $meditationAudio = $mix['binary'];
 
-        //4 test save
-        $meditationAudio = mix(['binary']);
-        $tempPath = $this->saveTempFile($meditationAudio);
+        // save to temp storage
+        $tempMeditationPath = $this->saveTempFile($meditationAudio);
 
+        // Upload to Google Drive
         $googleDrive = new GoogleDrive();
         $googleFileName = 'meditation_' . $this->meditationId . '_' . $this->meditationDate . '.mp3';
-        $uploadPath = $googleDrive->uploadPath($meditationAudio, $googleFileName, 'audio/mp3', 'test');
+        $uploadPath = $googleDrive->uploadPath($tempMeditationPath, $googleFileName, 'audio/mp3', 'test');
         $googleDrive->makeAnyoneReader($uploadPath);
-        $meditationPath = $googleDrive->publicDownloadLink($uploadPath);
+        $meditationDrivePath = $googleDrive->publicDownloadLink($uploadPath);
         
+        // save drive upload path to meditation record
         $meditation = Meditation::find($this->meditationId);
-        $meditation->meditation_url = $meditationPath;
+        $meditation->meditation_url = $meditationDrivePath;
         $meditation->save();
     }
 
@@ -94,7 +107,7 @@ class MixAudioJob implements ShouldQueue
             return $resp->body();
         }
         // Otherwise treat it as local storage
-        return Storage::disk('public')->get($path);
+        return Storage::disk('temp')->get($path);
     }
 
     private function saveTempFile(string $file): string

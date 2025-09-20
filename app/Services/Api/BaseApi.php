@@ -67,17 +67,45 @@ abstract class BaseApi
         $form    = $options['form']    ?? null;
         $body    = $options['body']    ?? null;
 
-        $client = $this->client($headers);
+        // ---- client options (with sensible defaults) ----
+        $connectTimeout = (int)($options['connect_timeout'] ?? 10);   // seconds to open socket
+        $timeout        = (int)($options['timeout']         ?? 120);  // total seconds for response
+
+        // retry: allow int or array [times, delayMs, throwFlag]
+        $retryOpt   = $options['retry'] ?? [3, 1000, false];
+        if (is_array($retryOpt)) {
+            [$retryTimes, $retryDelayMs, $retryThrow] = array_pad($retryOpt, 3, false);
+        } else {
+            $retryTimes   = (int)$retryOpt;
+            $retryDelayMs = 1000;
+            $retryThrow   = false;
+        }
+
+        // Build client with options
+        $client = $this->client($headers)
+            ->acceptJson()
+            ->asJson()
+            ->connectTimeout($connectTimeout)
+            ->timeout($timeout)
+            ->retry((int)$retryTimes, (int)$retryDelayMs, throw: (bool)$retryThrow);
 
         if ($form !== null) {
             $client = $client->asForm();
         }
 
-        // Build the request
-        $response = match (strtoupper($method)) {
-            'GET', 'DELETE' => $client->{$method}($endpoint, $query ?? []),
-            default         => $this->sendWithBody($client, $method, $endpoint, $json, $form, $body, $query),
-        };
+        // Dispatch request
+        switch (strtoupper($method)) {
+            case 'GET':
+                $response = $client->get($endpoint, $query ?? []);
+                break;
+            case 'DELETE':
+                $response = $client->delete($endpoint, $query ?? []);
+                break;
+            default:
+                // your helper already handles json/form/body/query
+                $response = $this->sendWithBody($client, $method, $endpoint, $json, $form, $body, $query);
+                break;
+        }
 
         return $this->normaliseResponse($response);
     }

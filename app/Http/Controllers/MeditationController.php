@@ -43,7 +43,7 @@ class MeditationController extends Controller
 
         if ($result) {
             GenerateScriptJob::dispatch($meditation->id, $meditation->created_at->format('dmY'));
-            return redirect()->route('meditation.thanks');
+            return redirect()->route('meditation.thanks', $meditation);
         } else {
             return redirect()->back()->withInput();
         }

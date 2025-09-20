@@ -50,7 +50,7 @@
             <textarea id="challenges" name="challenges" class="meditation__input{{$errors->first('challenges') ? ' meditation__input--error' : ''}}">{{ old('challenges') }}</textarea>
             <div>@error('challenges') {{ $message }} @enderror</div>
         </div>
-        <div class="meditation__field">
+        <div class="meditation__field meditation__field--checkbox">
             <input id="consent" type="checkbox" name="consent" class="meditation__input{{$errors->first('consent') ? ' meditation__input--error' : ''}}" {{ old('consent') ? 'checked' : '' }}>
             <label for="consent" class="meditation__label{{$errors->first('consent') ? ' meditation__label--error' : ''}}">
                 I consent to the processing of my personal data
