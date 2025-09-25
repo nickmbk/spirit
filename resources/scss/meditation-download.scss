@@ -121,24 +121,12 @@ code#url {
 .brew__logo { font-size: 2rem; margin-bottom: .25rem; }
 .brew__title { margin: 0 0 .5rem; font-weight: 800; color: #333; }
 .brew__message { margin: 0 0 1.25rem; color: #555; }
+.brew__error { margin: .5rem 0 0; color: #b00020; font-weight: 600; }
 
-.brew__progress {
-  height: 12px; background: #eee;
-  border-radius: 999px; overflow: hidden;
-}
-.brew__progress-bar {
-  height: 100%;
-  background: #ff7e47; /* burnt orange */
-  width: 0%;
-  transition: width .35s ease;
-}
-
-.brew__percent { margin-top: .5rem; color: #444; font-weight: 700; }
+/* old progress styles removed */
 
 /* Hide helper */
 .hidden { display: none !important; }
 
-/* Respect reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  .brew__progress-bar { transition: none; }
-}
+/* Spinner stopped state (on error) */
+.spinner.stopped { animation-play-state: paused; opacity: .6; }

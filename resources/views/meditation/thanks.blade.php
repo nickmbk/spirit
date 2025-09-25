@@ -13,23 +13,15 @@
       <h2 class="brew__title">Brewing calming vibes...</h2>
       <p id="brew-msg" class="brew__message">Finding your inner Wi-Fi…</p>
 
-      <div class="brew__progress" aria-label="Progress">
-        <div id="brew-bar" class="brew__progress-bar" style="width: 0%"></div>
-      </div>
+      <div class="spinner" aria-hidden="true"></div>
 
-      <div class="brew__percent">
-        <span id="brew-percent">0%</span>
-      </div>
+  <p id="brew-error" class="brew__error hidden" role="alert"></p>
 
       <p class="brew__hint">You can keep this tab open. We’ll nudge you when it’s ready.</p>
     </div>
   </div>
 
-    <div id="waiting" aria-live="polite">
-      <div class="status-title">Brewing calming vibes<span class="dots"></span></div>
-      <p class="status-subtle">Your personalised meditation is being prepared.</p>
-      <div class="spinner" aria-hidden="true"></div>
-    </div>
+    
 
     <div id="ready" class="hidden">
       <a id="dl" href="#" class="btn" download>Download meditation (MP3)</a>
@@ -54,58 +46,71 @@
     "Pressing pause on chaos…"
   ];
 
-  // --- Faux progress controller ---
-  let fakeProgress = 0;
-  let readySignal = false;
+  // --- Message cycling (spread over ~5 minutes) ---
   let msgIndex = 0;
-  const bar = document.getElementById('brew-bar');
-  const pct = document.getElementById('brew-percent');
   const msg = document.getElementById('brew-msg');
   const overlay = document.getElementById('brew-overlay');
 
-  // Progress moves fast at first, then slower, and never passes 95% until ready.
-  function tickProgress() {
-    if (readySignal) return; // final animation handled on success
-    const cap = 95;
+  // 9 messages over ~5 minutes => ~33 seconds per message
+  const messageInterval = 33000; // 33s
 
-    // ease: bigger steps early, tiny ones later + a smidge of randomness
-    const gap = Math.max(1, cap - fakeProgress);
-    const step = Math.max(0.4, Math.min(6, gap / 8)) + (Math.random() * 0.8 - 0.2);
-    fakeProgress = Math.min(cap, fakeProgress + step);
-
-    bar.style.width = fakeProgress.toFixed(1) + '%';
-    pct.textContent = Math.round(fakeProgress) + '%';
-  }
-
-  // Rotate messages every ~4s
   function rotateMessage() {
     msgIndex = (msgIndex + 1) % brewMessages.length;
     msg.textContent = brewMessages[msgIndex];
   }
 
-  const progressTimer = setInterval(tickProgress, 700);
-  const messageTimer = setInterval(rotateMessage, 4000);
+  const messageTimer = setInterval(rotateMessage, messageInterval);
 
   // --- Polling (your original logic, with a couple of tweaks) ---
   let attempts = 0, intervalMs = 5000, timer;
+  let consecutiveErrors = 0;
+  const startTime = Date.now();
+  const maxWaitMs = 12 * 60 * 1000; // 12 minutes safety timeout
+  const errEl = document.getElementById('brew-error');
+  const spinEl = document.querySelector('#brew-overlay .spinner');
+
+  function showError(message) {
+    // Stop timers
+    clearInterval(timer);
+    clearInterval(messageTimer);
+
+    // Show error UI
+    errEl.textContent = message || 'Something went wrong while preparing your meditation.';
+    errEl.classList.remove('hidden');
+
+    // Pause spinner animation for visual cue
+    if (spinEl) spinEl.classList.add('stopped');
+  }
 
   async function poll() {
     try {
+      // Overall timeout guard
+      if (Date.now() - startTime > maxWaitMs) {
+        showError('This is taking longer than expected. Please refresh this page in a few minutes.');
+        return;
+      }
+
       const res = await fetch(statusUrl, { headers: { 'Accept': 'application/json' }});
-      if (!res.ok) throw new Error('Network not ok');
+      if (!res.ok) {
+        consecutiveErrors++;
+        if (consecutiveErrors >= 3) {
+          showError('We’re having trouble reaching the server. Please try again shortly.');
+          return;
+        }
+        throw new Error('Network not ok');
+      }
       const data = await res.json();
+      consecutiveErrors = 0; // reset on success
+
+      if (data.error || data.status === 'failed') {
+        showError(data.error || 'We hit a snag while creating your meditation. Please try again.');
+        return;
+      }
 
       if (data.ready && data.meditation_url) {
-
-        document.querySelector('.spinner')?.classList.add('hide');
-        setTimeout(() => {
-          document.querySelector('.spinner')?.remove();
-        }, 500); // remove from DOM after fade
-
-        // Mark as ready: blast progress to 100 and fade overlay
-        readySignal = true;
-        bar.style.width = '100%';
-        pct.textContent = '100%';
+        // Stop timers and show completion
+        clearInterval(timer);
+        clearInterval(messageTimer);
         msg.textContent = "Your meditation is ready ✨";
 
         // Fill download details
@@ -113,11 +118,6 @@
         const a = document.getElementById('dl');
         a.href = data.meditation_url;
         document.getElementById('url').textContent = data.meditation_url;
-
-        // Tidy timers
-        clearInterval(timer);
-        clearInterval(progressTimer);
-        clearInterval(messageTimer);
 
         // Gentle fade out
         overlay.style.opacity = '1';
@@ -134,8 +134,7 @@
       if (attempts === 24) { clearInterval(timer); intervalMs = 12000; timer = setInterval(poll, intervalMs); }
     } catch (e) {
       console.warn('Polling error:', e);
-      // If there’s a blip, nudge progress a tad so it still feels alive
-      fakeProgress = Math.min(95, fakeProgress + 1);
+      // Soft-fail; next tick will either recover or trip the error threshold
     }
   }
 

@@ -36,9 +36,7 @@ class MeditationController extends Controller
         $meditation->style = $request->input('style');
         $meditation->goals = $request->input('goals');
         $meditation->challenges = $request->input('challenges');
-        if ($request->input('consent') === 'on') {
-            $meditation->consent = true;
-        }
+    
         $result = $meditation->save();
 
         if ($result) {

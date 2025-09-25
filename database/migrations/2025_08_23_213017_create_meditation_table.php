@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('first_name');
             $table->string('email');
             $table->date('birth_date')->nullable();
+            $table->string('style')->nullable();
             $table->text('goals')->nullable();
             $table->text('challenges')->nullable();
             $table->longText('script_text')->nullable();
