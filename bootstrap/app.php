@@ -15,6 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'suno.webhook' => \App\Http\Middleware\VerifySunoWebhook::class,
         ]);
+         $middleware->web(append: [
+            \App\Http\Middleware\StagingBasicAuth::class,
+            \App\Http\Middleware\NoIndexOnStaging::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
