@@ -2,11 +2,26 @@
 
 namespace App\Services;
 
-use Symfony\Component\Process\Process;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\Process\Process;
 
 class AudioMix
 {
+    private string $ffmpegBin;
+    private string $ffprobeBin;
+    private string $pathEnv;
+
+    public function __construct()
+    {
+        // Use absolute paths from env if set (e.g. /var/www/bin/ffmpeg), otherwise fall back to command names.
+        $this->ffmpegBin  = env('FFMPEG_BIN',  'ffmpeg');
+        $this->ffprobeBin = env('FFPROBE_BIN', 'ffprobe');
+
+        // Make sure spawned processes get a PATH that includes our bin dir.
+        // /usr/local/bin is a common place we symlinked to; /var/www/bin is where we put the actual binaries.
+        $this->pathEnv = '/usr/local/bin:/var/www/bin:' . (getenv('PATH') ?: '');
+    }
+
     /**
      * Mix voice over music with:
      * - voice delay (offsetMs)
@@ -14,26 +29,17 @@ class AudioMix
      * - loop music to cover voice + tail
      * - optional fade-out at the end
      *
-     * @param  string  $voiceBinary      Raw bytes (prefer WAV from ElevenLabs)
-     * @param  string  $musicBinary      Raw bytes (Suno MP3 usually)
-     * @param  int     $offsetMs         Start voice after N ms (e.g. 4000)
-     * @param  int     $tailMs           Extra music after voice ends (e.g. 4000)
-     * @param  float   $voiceVol         0.0–2.0 (0.85 ≈ 85%)
-     * @param  float   $musicVol         0.0–2.0 (0.15 ≈ 15%)
-     * @param  bool    $fadeOut          Apply fade-out at end
-     * @param  int     $fadeMs           Fade duration in ms
-     * @param  string  $outFormat        'mp3' or 'wav'
      * @return array{binary:string,mime:string,seconds:float}
      */
     public function mixWithOffsetAndLoop(
         string $voiceBinary,
         string $musicBinary,
-        int $offsetMs = 5000,     // start voice 5s after music
-        int $tailMs = 5000,       // keep music 5s after voice ends
-        float $voiceVol = 0.85,   // will also be reflected in weights
-        float $musicVol = 0.15,   // "
+        int $offsetMs = 5000,
+        int $tailMs = 5000,
+        float $voiceVol = 0.85,
+        float $musicVol = 0.15,
         bool $fadeOut = true,
-        int $fadeMs = 5000,       // 5s fade
+        int $fadeMs = 5000,
         string $outFormat = 'mp3'
     ): array {
         $tmp = storage_path('app/tmp');
@@ -54,7 +60,7 @@ class AudioMix
             throw new \RuntimeException('Voice input is empty — cannot proceed.');
         }
 
-        // voice duration (seconds)
+        // Probe voice duration
         $voiceSeconds = $this->probeDuration($voiceIn);
         $extraCleanup = [];
         if ($voiceSeconds <= 0) {
@@ -69,7 +75,7 @@ class AudioMix
                 $extraCleanup[] = $reencoded;
                 $probeAgain = $this->probeDuration($reencoded);
                 if ($probeAgain > 0) {
-                    $voiceIn = $reencoded; // use the re-encoded file for the rest of the pipeline
+                    $voiceIn = $reencoded;
                     $voiceSeconds = $probeAgain;
                     Log::info('AudioMix: duration recovered after re-encode.', [
                         'seconds' => $voiceSeconds,
@@ -77,9 +83,9 @@ class AudioMix
                 }
             }
 
-            // If still unknown, optionally fall back to a configured default duration
+            // Optional fallback duration so the job can continue
             if ($voiceSeconds <= 0) {
-                $fallbackSeconds = (float) (env('AUDIO_DURATION_FALLBACK', 0));
+                $fallbackSeconds = (float) env('AUDIO_DURATION_FALLBACK', 0);
                 if ($fallbackSeconds > 0) {
                     Log::warning('AudioMix: Using configured fallback voice duration.', [
                         'fallback_seconds' => $fallbackSeconds,
@@ -87,8 +93,7 @@ class AudioMix
                     $voiceSeconds = $fallbackSeconds;
                 } else {
                     $this->cleanup(array_merge([$voiceIn, $musicIn], $extraCleanup));
-                    $hint = 'Ensure ffmpeg/ffprobe are installed and available on the server PATH. '
-                          . 'You can also set AUDIO_DURATION_FALLBACK (seconds) to keep production running temporarily.';
+                    $hint = 'Ensure ffmpeg/ffprobe paths are set (FFMPEG_BIN / FFPROBE_BIN) or on PATH.';
                     throw new \RuntimeException('Could not determine voice duration. ' . $hint);
                 }
             }
@@ -100,16 +105,11 @@ class AudioMix
         $outExt = $outFormat === 'wav' ? 'wav' : 'mp3';
         $out = tempnam($tmp, 'mix_') . ".$outExt";
 
-        // Fade parameters
-        $fadeSec = $fadeMs / 1000;
+        // Fade
+        $fadeSec   = $fadeMs / 1000;
         $fadeStart = max(0, $targetSeconds - $fadeSec);
 
-        // ---- filter graph ----
-        // [0:a] is MUSIC (looped in input args), [1:a] is VOICE
-        // - Delay voice by offsetMs
-        // - (Optional) extra volume stages before amix (kept here, but weights already enforce balance)
-        // - amix with explicit weights enforces 15%/85% balance, normalize=0 prevents auto-scaling
-        // - Trim final mix to targetSeconds and (optionally) fade-out
+        // Build filter graph
         $filter = sprintf(
             "[1:a]adelay=%d|%d,volume=%.3f[v];" .
             "[0:a]volume=%.3f[m];" .
@@ -123,12 +123,11 @@ class AudioMix
             $fadeOut ? sprintf(",afade=t=out:st=%F:d=%F", $fadeStart, $fadeSec) : ""
         );
 
+        // Use the configured ffmpeg binary
         $cmd = [
-            'ffmpeg','-y',
-            // Loop MUSIC forever so it covers the whole mix
-            '-stream_loop','-1','-i',$musicIn,
-            // Voice (no loop)
-            '-i',$voiceIn,
+            $this->ffmpegBin, '-y',
+            '-stream_loop','-1','-i',$musicIn, // loop music
+            '-i',$voiceIn,                     // voice
             '-filter_complex', $filter,
             '-map','[aout]',
             '-ac','2','-ar','44100',
@@ -140,13 +139,20 @@ class AudioMix
             array_push($cmd, '-c:a','pcm_s16le', $out);
         }
 
-        $proc = new \Symfony\Component\Process\Process($cmd);
+        $proc = new Process($cmd);
+        $proc->setEnv(['PATH' => $this->pathEnv]); // make sure our bin dir is visible
         $proc->setTimeout(180);
         $proc->run();
 
         if (!$proc->isSuccessful() || !file_exists($out)) {
             $stderr = $proc->getErrorOutput();
-            Log::error('AudioMix: ffmpeg mixing failed.', [ 'stderr' => $stderr ]);
+            Log::error('AudioMix: ffmpeg mixing failed.', [
+                'stderr' => $stderr,
+                'ffmpeg' => $this->ffmpegBin,
+                'voice'  => $voiceIn,
+                'music'  => $musicIn,
+                'out'    => $out,
+            ]);
             $this->cleanup(array_merge([$voiceIn, $musicIn, $out], $extraCleanup));
             throw new \RuntimeException("FFmpeg failed: {$stderr}");
         }
@@ -154,7 +160,7 @@ class AudioMix
         $binary = file_get_contents($out);
         $mime   = $outExt === 'mp3' ? 'audio/mpeg' : 'audio/wav';
 
-    $this->cleanup(array_merge([$voiceIn, $musicIn, $out], $extraCleanup));
+        $this->cleanup(array_merge([$voiceIn, $musicIn, $out], $extraCleanup));
 
         return [
             'binary'  => $binary,
@@ -167,24 +173,70 @@ class AudioMix
     {
         try {
             $p = new Process([
-                'ffprobe','-v','error','-show_entries','format=duration',
-                '-of','default=noprint_wrappers=1:nokey=1',$path
+                $this->ffprobeBin, '-v','error',
+                '-show_entries','format=duration',
+                '-of','default=noprint_wrappers=1:nokey=1',
+                $path,
             ]);
+            $p->setEnv(['PATH' => $this->pathEnv]);
             $p->setTimeout(15);
             $p->run();
         } catch (\Throwable $e) {
             Log::error('AudioMix: ffprobe execution failed.', [
                 'message' => $e->getMessage(),
+                'ffprobe' => $this->ffprobeBin,
+                'path'    => $path,
             ]);
             return 0.0;
         }
+
         if (!$p->isSuccessful()) {
             Log::warning('AudioMix: ffprobe returned non-success.', [
-                'stderr' => $p->getErrorOutput(),
+                'stderr'  => $p->getErrorOutput(),
+                'ffprobe' => $this->ffprobeBin,
+                'path'    => $path,
             ]);
             return 0.0;
         }
+
         return (float) trim($p->getOutput());
+    }
+
+    protected function reencodeToWav(string $inPath, string $tmpDir): ?string
+    {
+        $out = tempnam($tmpDir, 'revoice_') . '.wav';
+
+        try {
+            $proc = new Process([
+                $this->ffmpegBin, '-y','-i',$inPath,
+                '-ac','2','-ar','44100','-c:a','pcm_s16le',
+                $out,
+            ]);
+            $proc->setEnv(['PATH' => $this->pathEnv]);
+            $proc->setTimeout(60);
+            $proc->run();
+
+            if ($proc->isSuccessful() && file_exists($out) && ((@filesize($out) ?: 0) > 0)) {
+                return $out;
+            }
+
+            Log::warning('AudioMix: re-encode to WAV failed.', [
+                'stderr' => $proc->getErrorOutput(),
+                'ffmpeg' => $this->ffmpegBin,
+                'in'     => $inPath,
+                'out'    => $out,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('AudioMix: re-encode threw exception.', [
+                'message' => $e->getMessage(),
+                'ffmpeg'  => $this->ffmpegBin,
+            ]);
+        }
+
+        if (file_exists($out) && ((@filesize($out) ?: 0) === 0)) {
+            @unlink($out);
+        }
+        return null;
     }
 
     protected function cleanup(array $paths): void
@@ -192,38 +244,5 @@ class AudioMix
         foreach ($paths as $p) {
             if ($p && file_exists($p)) @unlink($p);
         }
-    }
-
-    /**
-     * Try to re-encode any input audio to a clean WAV the pipeline can consume.
-     * Returns the path to the re-encoded file on success, or null on failure.
-     */
-    protected function reencodeToWav(string $inPath, string $tmpDir): ?string
-    {
-        $out = tempnam($tmpDir, 'revoice_') . '.wav';
-        try {
-            $proc = new Process([
-                'ffmpeg','-y','-i',$inPath,
-                '-ac','2','-ar','44100','-c:a','pcm_s16le',
-                $out
-            ]);
-            $proc->setTimeout(60);
-            $proc->run();
-            if ($proc->isSuccessful() && file_exists($out) && (@filesize($out) ?: 0) > 0) {
-                return $out;
-            }
-            Log::warning('AudioMix: re-encode to WAV failed.', [
-                'stderr' => $proc->getErrorOutput(),
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('AudioMix: re-encode threw exception.', [
-                'message' => $e->getMessage(),
-            ]);
-        }
-        // Clean up a possibly empty output file
-        if (file_exists($out) && ((@filesize($out) ?: 0) === 0)) {
-            @unlink($out);
-        }
-        return null;
     }
 }
