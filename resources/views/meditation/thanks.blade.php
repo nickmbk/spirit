@@ -65,7 +65,7 @@
   let attempts = 0, intervalMs = 5000, timer;
   let consecutiveErrors = 0;
   const startTime = Date.now();
-  const maxWaitMs = 20 * 60 * 1000; // 20 minutes safety timeout
+  const maxWaitMs = 30 * 60 * 1000; // 30 minutes safety timeout
   const errEl = document.getElementById('brew-error');
   const spinEl = document.querySelector('#brew-overlay .spinner');
 
