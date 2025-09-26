@@ -22,6 +22,7 @@ return new class extends Migration
             $table->longText('script_text')->nullable();
             $table->text('voice_url')->nullable();
             $table->text('music_url')->nullable();
+            $table->text('music_task_id')->nullable();
             $table->text('meditation_url')->nullable();
             $table->timestamps();
         });
