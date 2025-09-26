@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Symfony\Component\Process\Process;
+use Illuminate\Support\Facades\Log;
 
 class AudioMix
 {
@@ -43,11 +44,54 @@ class AudioMix
         file_put_contents($voiceIn, $voiceBinary);
         file_put_contents($musicIn, $musicBinary);
 
+        // Basic sanity check to avoid processing empty/invalid inputs
+        $voiceSize = @filesize($voiceIn) ?: 0;
+        if ($voiceSize <= 0) {
+            Log::error('AudioMix: Empty voice input written to temp file.', [
+                'voice_path' => $voiceIn,
+            ]);
+            $this->cleanup([$voiceIn, $musicIn]);
+            throw new \RuntimeException('Voice input is empty — cannot proceed.');
+        }
+
         // voice duration (seconds)
         $voiceSeconds = $this->probeDuration($voiceIn);
+        $extraCleanup = [];
         if ($voiceSeconds <= 0) {
-            $this->cleanup([$voiceIn, $musicIn]);
-            throw new \RuntimeException('Could not determine voice duration.');
+            Log::warning('AudioMix: ffprobe could not determine voice duration — attempting re-encode fallback.', [
+                'voice_path' => $voiceIn,
+                'voice_size' => $voiceSize,
+            ]);
+
+            // Try re-encoding the voice to a clean WAV to help ffprobe
+            $reencoded = $this->reencodeToWav($voiceIn, $tmp);
+            if ($reencoded) {
+                $extraCleanup[] = $reencoded;
+                $probeAgain = $this->probeDuration($reencoded);
+                if ($probeAgain > 0) {
+                    $voiceIn = $reencoded; // use the re-encoded file for the rest of the pipeline
+                    $voiceSeconds = $probeAgain;
+                    Log::info('AudioMix: duration recovered after re-encode.', [
+                        'seconds' => $voiceSeconds,
+                    ]);
+                }
+            }
+
+            // If still unknown, optionally fall back to a configured default duration
+            if ($voiceSeconds <= 0) {
+                $fallbackSeconds = (float) (env('AUDIO_DURATION_FALLBACK', 0));
+                if ($fallbackSeconds > 0) {
+                    Log::warning('AudioMix: Using configured fallback voice duration.', [
+                        'fallback_seconds' => $fallbackSeconds,
+                    ]);
+                    $voiceSeconds = $fallbackSeconds;
+                } else {
+                    $this->cleanup(array_merge([$voiceIn, $musicIn], $extraCleanup));
+                    $hint = 'Ensure ffmpeg/ffprobe are installed and available on the server PATH. '
+                          . 'You can also set AUDIO_DURATION_FALLBACK (seconds) to keep production running temporarily.';
+                    throw new \RuntimeException('Could not determine voice duration. ' . $hint);
+                }
+            }
         }
 
         // total output length = offset + voice + tail
@@ -102,14 +146,15 @@ class AudioMix
 
         if (!$proc->isSuccessful() || !file_exists($out)) {
             $stderr = $proc->getErrorOutput();
-            $this->cleanup([$voiceIn, $musicIn, $out]);
+            Log::error('AudioMix: ffmpeg mixing failed.', [ 'stderr' => $stderr ]);
+            $this->cleanup(array_merge([$voiceIn, $musicIn, $out], $extraCleanup));
             throw new \RuntimeException("FFmpeg failed: {$stderr}");
         }
 
         $binary = file_get_contents($out);
         $mime   = $outExt === 'mp3' ? 'audio/mpeg' : 'audio/wav';
 
-        $this->cleanup([$voiceIn, $musicIn, $out]);
+    $this->cleanup(array_merge([$voiceIn, $musicIn, $out], $extraCleanup));
 
         return [
             'binary'  => $binary,
@@ -120,13 +165,25 @@ class AudioMix
 
     protected function probeDuration(string $path): float
     {
-        $p = new Process([
-            'ffprobe','-v','error','-show_entries','format=duration',
-            '-of','default=noprint_wrappers=1:nokey=1',$path
-        ]);
-        $p->setTimeout(15);
-        $p->run();
-        if (!$p->isSuccessful()) return 0.0;
+        try {
+            $p = new Process([
+                'ffprobe','-v','error','-show_entries','format=duration',
+                '-of','default=noprint_wrappers=1:nokey=1',$path
+            ]);
+            $p->setTimeout(15);
+            $p->run();
+        } catch (\Throwable $e) {
+            Log::error('AudioMix: ffprobe execution failed.', [
+                'message' => $e->getMessage(),
+            ]);
+            return 0.0;
+        }
+        if (!$p->isSuccessful()) {
+            Log::warning('AudioMix: ffprobe returned non-success.', [
+                'stderr' => $p->getErrorOutput(),
+            ]);
+            return 0.0;
+        }
         return (float) trim($p->getOutput());
     }
 
@@ -135,5 +192,38 @@ class AudioMix
         foreach ($paths as $p) {
             if ($p && file_exists($p)) @unlink($p);
         }
+    }
+
+    /**
+     * Try to re-encode any input audio to a clean WAV the pipeline can consume.
+     * Returns the path to the re-encoded file on success, or null on failure.
+     */
+    protected function reencodeToWav(string $inPath, string $tmpDir): ?string
+    {
+        $out = tempnam($tmpDir, 'revoice_') . '.wav';
+        try {
+            $proc = new Process([
+                'ffmpeg','-y','-i',$inPath,
+                '-ac','2','-ar','44100','-c:a','pcm_s16le',
+                $out
+            ]);
+            $proc->setTimeout(60);
+            $proc->run();
+            if ($proc->isSuccessful() && file_exists($out) && (@filesize($out) ?: 0) > 0) {
+                return $out;
+            }
+            Log::warning('AudioMix: re-encode to WAV failed.', [
+                'stderr' => $proc->getErrorOutput(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('AudioMix: re-encode threw exception.', [
+                'message' => $e->getMessage(),
+            ]);
+        }
+        // Clean up a possibly empty output file
+        if (file_exists($out) && ((@filesize($out) ?: 0) === 0)) {
+            @unlink($out);
+        }
+        return null;
     }
 }

@@ -65,7 +65,7 @@
   let attempts = 0, intervalMs = 5000, timer;
   let consecutiveErrors = 0;
   const startTime = Date.now();
-  const maxWaitMs = 12 * 60 * 1000; // 12 minutes safety timeout
+  const maxWaitMs = 20 * 60 * 1000; // 20 minutes safety timeout
   const errEl = document.getElementById('brew-error');
   const spinEl = document.querySelector('#brew-overlay .spinner');
 
@@ -86,7 +86,7 @@
     try {
       // Overall timeout guard
       if (Date.now() - startTime > maxWaitMs) {
-        showError('This is taking longer than expected. Please refresh this page in a few minutes.');
+        showError('There has been an error.');
         return;
       }
 
