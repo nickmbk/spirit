@@ -10,7 +10,7 @@ Route::post('/webhooks/suno', SunoWebhookController::class)
     ->name('webhooks.suno');
 
     
-Route::get('/meditation/{meditation}/download', function (Meditation $meditation) {
+Route::get('/{meditation}/download', function (Meditation $meditation) {
     $ready = (bool) $meditation->meditation_url;
 
     // Look for any error logs tied to this meditation after it was created

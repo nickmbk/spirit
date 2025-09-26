@@ -2,7 +2,7 @@
 
 @section('content')
     <!--<a href="{{ URL::previous() }}" class="back-link"><-- Back</a>-->
-    <form action="/meditation" method="post" class="meditation__form">
+    <form action="/" method="post" class="meditation__form">
         @csrf
         <div class="meditation__field">
             <label for="first-name" class="meditation__label{{$errors->first('first_name') ? ' meditation__label--error' : ''}}">
